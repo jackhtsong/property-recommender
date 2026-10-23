@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Property Recommender</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>Property Recommender</h1>
+
+    <form id="search-form">
+      <label>Latitude
+        <input name="lat" type="number" step="any" value="49.2827" required>
+      </label>
+      <label>Longitude
+        <input name="lon" type="number" step="any" value="-123.1207" required>
+      </label>
+      <label>Radius (m)
+        <input name="radius" type="number" min="1" max="50000" value="3000">
+      </label>
+      <label>Min bedrooms
+        <input name="bedrooms_min" type="number" min="0">
+      </label>
+      <label>Max price ($)
+        <input name="price_max" type="number" min="1">
+      </label>
+      <label>Type
+        <select name="property_type">
+          <option value="">Any</option>
+          <option value="condo">Condo</option>
+          <option value="townhouse">Townhouse</option>
+          <option value="house">House</option>
+          <option value="duplex">Duplex</option>
+          <option value="loft">Loft</option>
+        </select>
+      </label>
+      <button type="submit">Search</button>
+    </form>
+
+    <p id="status" aria-live="polite"></p>
+    <ul id="results"></ul>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

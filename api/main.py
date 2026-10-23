@@ -1,8 +1,10 @@
 import os
+from pathlib import Path
 from typing import Literal
 
 import psycopg
 from fastapi import FastAPI, Query
+from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from pydantic import BaseModel
 
@@ -64,3 +66,8 @@ def search(
     }
     with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
         return conn.execute(SEARCH_SQL, params).fetchall()
+
+
+# Serve the frontend from web/ at "/". Mounted last so /search and /docs match first.
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
