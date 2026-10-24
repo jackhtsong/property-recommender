@@ -7,9 +7,10 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.geocode import GeocodeError, geocode
+from api.llm import Filters, LLMError, explain_listings, parse_query
 
 load_dotenv()  # read keys like GOOGLE_MAPS_API_KEY from .env
 
@@ -74,6 +75,10 @@ def search(
     elif lat is None or lon is None:
         raise HTTPException(status_code=422, detail="Give either near, or both lat and lon")
 
+    return run_search(lat, lon, radius, bedrooms_min, price_max, property_type)
+
+
+def run_search(lat, lon, radius, bedrooms_min=None, price_max=None, property_type=None) -> list[dict]:
     params = {
         "lat": lat, "lon": lon, "radius": radius,
         "bedrooms_min": bedrooms_min, "price_max": price_max,
@@ -81,6 +86,69 @@ def search(
     }
     with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
         return conn.execute(SEARCH_SQL, params).fetchall()
+
+
+# --- Natural-language search with Gemini ---
+
+# With no place in the request, search all of Vancouver from downtown.
+DOWNTOWN = (49.2827, -123.1207)
+CITY_WIDE_RADIUS = 20000
+NEARBY_RADIUS = 3000
+
+
+class AskRequest(BaseModel):
+    text: str = Field(min_length=2, max_length=500)
+
+
+class AskResponse(BaseModel):
+    filters: Filters
+    results: list[Listing]
+
+
+@app.post("/ask", response_model=AskResponse)
+def ask(request: AskRequest):
+    """'3 bed condo near Kits under 1.5M' -> Gemini filters -> geocode -> search."""
+    try:
+        filters = parse_query(request.text)
+    except LLMError as error:
+        raise HTTPException(status_code=502, detail=str(error))
+
+    if filters.near:
+        try:
+            lat, lon = geocode(filters.near)
+        except GeocodeError as error:
+            raise HTTPException(status_code=400, detail=str(error))
+        radius = NEARBY_RADIUS
+    else:
+        lat, lon = DOWNTOWN
+        radius = CITY_WIDE_RADIUS
+
+    results = run_search(lat, lon, radius, filters.bedrooms_min, filters.price_max, filters.property_type)
+    return {"filters": filters, "results": results}
+
+
+class ExplainRequest(BaseModel):
+    text: str = Field(min_length=2, max_length=500)
+    listing_ids: list[int] = Field(min_length=1, max_length=5)
+
+
+EXPLAIN_SQL = """
+SELECT id, address, description, bedrooms, washrooms, sqft, price, property_type
+FROM listings WHERE id = ANY(%(ids)s);
+"""
+
+
+@app.post("/explain")
+def explain(request: ExplainRequest) -> dict[int, str]:
+    """Why each listing fits the request. Facts come from the database, never the browser."""
+    with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
+        listings = conn.execute(EXPLAIN_SQL, {"ids": request.listing_ids}).fetchall()
+    if not listings:
+        raise HTTPException(status_code=404, detail="No listings with those ids")
+    try:
+        return explain_listings(request.text, listings)
+    except LLMError as error:
+        raise HTTPException(status_code=502, detail=str(error))
 
 
 # Serve the frontend from web/ at "/". Mounted last so /search and /docs match first.
