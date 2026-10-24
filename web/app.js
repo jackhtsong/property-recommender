@@ -16,15 +16,16 @@ askForm.addEventListener("submit", async (event) => {
 
   statusEl.textContent = "Understanding your request…";
   resultsEl.innerHTML = "";
+  MapView.show([]);  // clear old pins so a failed search doesn't show stale results
 
   try {
-    const { filters, results } = await requestJSON("/ask", {
+    const { filters, center, results } = await requestJSON("/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
     });
     fillForm(filters);
-    showResults(results, describeFilters(filters));
+    showResults(results, describeFilters(filters), center);
     explainTop(text, results);
   } catch (error) {
     statusEl.textContent = `Search failed: ${error.message}`;
@@ -43,6 +44,7 @@ form.addEventListener("submit", async (event) => {
 
   statusEl.textContent = "Searching…";
   resultsEl.innerHTML = "";
+  MapView.show([]);
 
   try {
     showResults(await requestJSON(`/search?${params}`));
@@ -62,12 +64,32 @@ async function requestJSON(url, options) {
   return response.json();
 }
 
-function showResults(listings, understood) {
+function showResults(listings, understood, center) {
   const count = listings.length
     ? `${listings.length} listing${listings.length === 1 ? "" : "s"} found`
     : "No listings found. Try a bigger radius or fewer filters.";
   statusEl.textContent = understood ? `${count} for: ${understood}` : count;
-  listings.forEach((listing) => resultsEl.append(renderListing(listing)));
+  listings.forEach((listing, i) => resultsEl.append(renderListing(listing, i + 1)));
+  MapView.show(listings, center);
+}
+
+// Clicking a pin highlights its card; clicking a card shows its pin.
+MapView.onSelect = (id) => selectCard(id, true);
+
+resultsEl.addEventListener("click", (event) => {
+  const card = event.target.closest(".listing");
+  if (!card) return;
+  const id = Number(card.dataset.id);
+  selectCard(id, false);
+  MapView.focus(id);
+});
+
+function selectCard(id, scroll) {
+  resultsEl.querySelectorAll(".listing.selected").forEach((el) => el.classList.remove("selected"));
+  const card = resultsEl.querySelector(`[data-id="${id}"]`);
+  if (!card) return;
+  card.classList.add("selected");
+  if (scroll) card.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 // Show what Gemini understood in the manual form, so the user can check and adjust it.
@@ -120,14 +142,17 @@ async function explainTop(text, listings) {
   }
 }
 
-function renderListing(l) {
+function renderListing(l, number) {
   const li = document.createElement("li");
   li.className = "listing";
   li.dataset.id = l.id;
 
   // textContent (not innerHTML) so text from the database or AI is never run as HTML.
   const title = document.createElement("h2");
-  title.textContent = l.address;
+  const badge = document.createElement("span");
+  badge.className = "badge";
+  badge.textContent = number;  // matches the number on the map pin
+  title.append(badge, l.address);
 
   const meta = document.createElement("p");
   meta.className = "meta";

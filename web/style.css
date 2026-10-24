@@ -15,7 +15,7 @@ body {
 }
 
 main {
-  max-width: 760px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 24px 16px;
 }
@@ -82,9 +82,43 @@ button {
   cursor: pointer;
 }
 
+/* List and map side by side; the map stays in view while the list scrolls. */
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.layout:has(#map:not([hidden])) {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+#map {
+  position: sticky;
+  top: 16px;
+  height: calc(100vh - 32px);
+  min-height: 360px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+/* On phones, map on top and shorter. */
+@media (max-width: 800px) {
+  .layout:has(#map:not([hidden])) {
+    grid-template-columns: 1fr;
+  }
+  #map {
+    position: static;
+    height: 320px;
+    order: -1;
+  }
+}
+
 #results {
   list-style: none;
   padding: 0;
+  margin: 0;
   display: grid;
   gap: 12px;
 }
@@ -94,6 +128,26 @@ button {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 16px;
+  cursor: pointer;
+}
+
+.listing.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  margin-right: 8px;
+  border-radius: 11px;
+  background: var(--accent);
+  color: white;
+  font-size: 0.8rem;
+  vertical-align: middle;
 }
 
 .listing h2 {
