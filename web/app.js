@@ -20,7 +20,12 @@ form.addEventListener("submit", async (event) => {
 
   try {
     const response = await fetch(`/search?${params}`);
-    if (!response.ok) throw new Error(`Server returned ${response.status}`);
+    if (!response.ok) {
+      // FastAPI puts the reason in "detail", e.g. 'Could not find "xyz"'.
+      const body = await response.json().catch(() => ({}));
+      const detail = typeof body.detail === "string" ? body.detail : `Server returned ${response.status}`;
+      throw new Error(detail);
+    }
     const listings = await response.json();
 
     statusEl.textContent = listings.length

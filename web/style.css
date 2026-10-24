@@ -27,6 +27,10 @@ main {
   align-items: end;
 }
 
+label.wide {
+  grid-column: span 2;
+}
+
 label {
   display: flex;
   flex-direction: column;

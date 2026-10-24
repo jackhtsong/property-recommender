@@ -3,10 +3,15 @@ from pathlib import Path
 from typing import Literal
 
 import psycopg
-from fastapi import FastAPI, Query
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from pydantic import BaseModel
+
+from api.geocode import GeocodeError, geocode
+
+load_dotenv()  # read keys like GOOGLE_MAPS_API_KEY from .env
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://localhost/listings")
 
@@ -52,13 +57,23 @@ LIMIT 50;
 
 @app.get("/search", response_model=list[Listing])
 def search(
-    lat: float = Query(ge=-90, le=90),
-    lon: float = Query(ge=-180, le=180),
+    near: str | None = Query(None, min_length=2, max_length=200, description="Place name, e.g. Commercial Drive"),
+    lat: float | None = Query(None, ge=-90, le=90),
+    lon: float | None = Query(None, ge=-180, le=180),
     radius: float = Query(3000, gt=0, le=50000, description="Metres"),
     bedrooms_min: int | None = Query(None, ge=0),
     price_max: int | None = Query(None, gt=0),
     property_type: Literal["condo", "townhouse", "house", "duplex", "loft"] | None = None,
 ):
+    # A place name wins over coordinates; otherwise both lat and lon are needed.
+    if near:
+        try:
+            lat, lon = geocode(near)
+        except GeocodeError as error:
+            raise HTTPException(status_code=400, detail=str(error))
+    elif lat is None or lon is None:
+        raise HTTPException(status_code=422, detail="Give either near, or both lat and lon")
+
     params = {
         "lat": lat, "lon": lon, "radius": radius,
         "bedrooms_min": bedrooms_min, "price_max": price_max,
