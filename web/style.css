@@ -27,6 +27,35 @@ main {
   align-items: end;
 }
 
+#ask-form {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+}
+
+.ask-label {
+  flex: 1;
+}
+
+.divider {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 16px 0 8px;
+}
+
+.explanation {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg);
+  font-size: 0.95rem;
+}
+
+.explanation.loading {
+  color: var(--muted);
+  font-style: italic;
+}
+
 label.wide {
   grid-column: span 2;
 }
