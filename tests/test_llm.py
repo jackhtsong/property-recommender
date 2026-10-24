@@ -117,6 +117,18 @@ def test_unusable_reply_raises(monkeypatch):
         api.llm.parse_query("3 bed house")
 
 
+def test_busy_gemini_gives_friendly_message(monkeypatch):
+    from google.genai import errors
+
+    class BusyModels:
+        def generate_content(self, **kwargs):
+            raise errors.ServerError(503, {"error": {"code": 503, "message": "high demand", "status": "UNAVAILABLE"}})
+
+    monkeypatch.setattr(api.llm, "_client", lambda: type("Client", (), {"models": BusyModels()})())
+    with pytest.raises(LLMError, match="Gemini is busy"):
+        api.llm.parse_query("3 bed house")
+
+
 def test_missing_key(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     with pytest.raises(LLMError, match="not set"):

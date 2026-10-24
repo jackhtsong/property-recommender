@@ -4,7 +4,7 @@ from functools import cache
 from typing import Literal
 
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 from pydantic import BaseModel, Field
 
 PropertyType = Literal["condo", "townhouse", "house", "duplex", "loft"]
@@ -59,6 +59,16 @@ def _client() -> genai.Client:
     return genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=20_000))
 
 
+def _friendly(error: Exception) -> str:
+    """A message fit for the page, instead of Gemini's raw error dump."""
+    code = getattr(error, "code", None)
+    if isinstance(error, errors.ServerError) or code == 503:
+        return "Gemini is busy right now. Please try again in a moment, or use the filters below."
+    if code == 429:
+        return "Too many AI requests. Please wait a minute and try again."
+    return f"Gemini request failed: {error}"
+
+
 def _model() -> str:
     return os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 
@@ -79,7 +89,7 @@ def parse_query(text: str) -> Filters:
     except LLMError:
         raise
     except Exception as error:
-        raise LLMError(f"Gemini request failed: {error}") from error
+        raise LLMError(_friendly(error)) from error
 
     if not isinstance(response.parsed, Filters):
         raise LLMError("Gemini returned filters in an unexpected format")
@@ -112,7 +122,7 @@ def explain_listings(query: str, listings: list[dict]) -> dict[int, str]:
     except LLMError:
         raise
     except Exception as error:
-        raise LLMError(f"Gemini request failed: {error}") from error
+        raise LLMError(_friendly(error)) from error
 
     if not isinstance(response.parsed, list):
         raise LLMError("Gemini returned explanations in an unexpected format")

@@ -100,8 +100,14 @@ class AskRequest(BaseModel):
     text: str = Field(min_length=2, max_length=500)
 
 
+class Point(BaseModel):
+    lat: float
+    lon: float
+
+
 class AskResponse(BaseModel):
     filters: Filters
+    center: Point | None  # the searched place, so the map can mark it; None for city-wide
     results: list[Listing]
 
 
@@ -124,7 +130,16 @@ def ask(request: AskRequest):
         radius = CITY_WIDE_RADIUS
 
     results = run_search(lat, lon, radius, filters.bedrooms_min, filters.price_max, filters.property_type)
-    return {"filters": filters, "results": results}
+    center = {"lat": lat, "lon": lon} if filters.near else None
+    return {"filters": filters, "center": center, "results": results}
+
+
+@app.get("/config")
+def config():
+    """Settings the browser needs. The browser key is public by design: Google
+    locks it to this site and the Maps JavaScript API, so it is safe to hand out.
+    The server key (GOOGLE_MAPS_API_KEY) is never sent."""
+    return {"maps_browser_key": os.environ.get("GOOGLE_MAPS_BROWSER_KEY")}
 
 
 class ExplainRequest(BaseModel):
