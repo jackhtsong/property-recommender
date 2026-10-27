@@ -4,9 +4,10 @@ import httpx
 
 GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 
-# Results are biased toward Greater Vancouver (south-west, north-east corners)
-# and limited to Canada.
-VANCOUVER_BOUNDS = "49.00,-123.30|49.40,-122.90"
+# Metro Vancouver, from UBC to Surrey and from the US border to the North Shore.
+# Results are biased toward this box, and anything outside it is rejected.
+METRO_SOUTH, METRO_WEST, METRO_NORTH, METRO_EAST = 49.00, -123.30, 49.45, -122.55
+METRO_BOUNDS = f"{METRO_SOUTH},{METRO_WEST}|{METRO_NORTH},{METRO_EAST}"
 
 # When Google can't find a place it falls back to the whole city, province or
 # country and marks it partial_match. Those are too broad to search around.
@@ -23,15 +24,16 @@ def geocode(place: str) -> tuple[float, float]:
     if not api_key:
         raise GeocodeError("GOOGLE_MAPS_API_KEY is not set in .env")
 
-    # "Main St" alone can match the North Shore's Main St; adding the city picks
-    # Vancouver's. A place that already names its city ("Metrotown, Burnaby") is left as is.
-    address = place if "," in place else f"{place}, Vancouver, BC"
+    # Add the province, not a city: "Richmond, Vancouver, BC" made Google ignore
+    # "Richmond" and return downtown Vancouver. ", BC" plus the Metro Vancouver bias
+    # still picks Vancouver's Main St. A place that names its own area is left as is.
+    address = place if "," in place else f"{place}, BC"
 
     response = httpx.get(
         GEOCODE_URL,
         params={
             "address": address,
-            "bounds": VANCOUVER_BOUNDS,
+            "bounds": METRO_BOUNDS,
             "components": "country:CA",
             "key": api_key,
         },
@@ -51,4 +53,7 @@ def geocode(place: str) -> tuple[float, float]:
         raise GeocodeError(f'Could not find "{place}"')
 
     location = result["geometry"]["location"]
-    return location["lat"], location["lng"]
+    lat, lon = location["lat"], location["lng"]
+    if not (METRO_SOUTH <= lat <= METRO_NORTH and METRO_WEST <= lon <= METRO_EAST):
+        raise GeocodeError(f'"{place}" is outside Metro Vancouver')
+    return lat, lon

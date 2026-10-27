@@ -90,10 +90,21 @@ def run_search(lat, lon, radius, bedrooms_min=None, price_max=None, property_typ
 
 # --- Natural-language search with Gemini ---
 
-# With no place in the request, search all of Vancouver from downtown.
+# With no place in the request, search all of Metro Vancouver from downtown
+# (50 km reaches South Surrey).
 DOWNTOWN = (49.2827, -123.1207)
-CITY_WIDE_RADIUS = 20000
-NEARBY_RADIUS = 3000
+CITY_WIDE_RADIUS = 50000
+# Near a place: try close first, and widen only if nothing matches, so the
+# place always comes first and an empty area still shows its nearest listings.
+NEARBY_RADII = (3000, 8000, 20000)
+NEARBY_RADIUS = NEARBY_RADII[0]
+# A whole city geocodes to one point in its middle, and 3 km around it misses
+# most of a big city like Surrey, so cities start wider.
+CITY_RADII = (8000, 15000, 25000)
+METRO_CITIES = {
+    "vancouver", "richmond", "burnaby", "surrey", "new westminster", "coquitlam",
+    "north vancouver", "west vancouver", "delta", "langley", "port moody", "white rock",
+}
 
 
 class AskRequest(BaseModel):
@@ -108,6 +119,7 @@ class Point(BaseModel):
 class AskResponse(BaseModel):
     filters: Filters
     center: Point | None  # the searched place, so the map can mark it; None for city-wide
+    radius_m: int  # how far the search reached, after any widening
     results: list[Listing]
 
 
@@ -124,14 +136,18 @@ def ask(request: AskRequest):
             lat, lon = geocode(filters.near)
         except GeocodeError as error:
             raise HTTPException(status_code=400, detail=str(error))
-        radius = NEARBY_RADIUS
+        is_city = filters.near.lower().removesuffix(", bc").strip() in METRO_CITIES
+        radii = CITY_RADII if is_city else NEARBY_RADII
     else:
         lat, lon = DOWNTOWN
-        radius = CITY_WIDE_RADIUS
+        radii = (CITY_WIDE_RADIUS,)
 
-    results = run_search(lat, lon, radius, filters.bedrooms_min, filters.price_max, filters.property_type)
+    for radius in radii:
+        results = run_search(lat, lon, radius, filters.bedrooms_min, filters.price_max, filters.property_type)
+        if results:
+            break
     center = {"lat": lat, "lon": lon} if filters.near else None
-    return {"filters": filters, "center": center, "results": results}
+    return {"filters": filters, "center": center, "radius_m": radius, "results": results}
 
 
 @app.get("/config")
