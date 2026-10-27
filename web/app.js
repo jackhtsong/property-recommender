@@ -3,7 +3,7 @@ const form = document.getElementById("search-form");
 const statusEl = document.getElementById("status");
 const resultsEl = document.getElementById("results");
 
-const EXPLAIN_TOP = 5;
+const TOP_RESULTS = 5;  // matches the server: only the closest 5 are shown and explained
 const FIRST_RADII_KM = [3, 8];  // the server's first radius: 3 km near a place, 8 km for a whole city
 
 const money = new Intl.NumberFormat("en-CA", {
@@ -20,7 +20,7 @@ askForm.addEventListener("submit", async (event) => {
   MapView.show([]);  // clear old pins so a failed search doesn't show stale results
 
   try {
-    const { filters, center, radius_m, results } = await requestJSON("/ask", {
+    const { filters, center, radius_m, total, results } = await requestJSON("/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
@@ -31,8 +31,8 @@ askForm.addEventListener("submit", async (event) => {
     if (center && results.length && !FIRST_RADII_KM.includes(radius_m / 1000)) {
       understood += ` (nothing closer matched, so showing up to ${radius_m / 1000} km away)`;
     }
-    showResults(results, understood, center);
-    explainTop(text, results);
+    showResults(results, total, understood, center);
+    explainTop(text, results, center);
   } catch (error) {
     statusEl.textContent = `Search failed: ${error.message}`;
   }
@@ -53,7 +53,8 @@ form.addEventListener("submit", async (event) => {
   MapView.show([]);
 
   try {
-    showResults(await requestJSON(`/search?${params}`));
+    const listings = await requestJSON(`/search?${params}`);
+    showResults(listings.slice(0, TOP_RESULTS), listings.length);
   } catch (error) {
     statusEl.textContent = `Search failed: ${error.message}`;
   }
@@ -70,10 +71,11 @@ async function requestJSON(url, options) {
   return response.json();
 }
 
-function showResults(listings, understood, center) {
-  const count = listings.length
-    ? `${listings.length} listing${listings.length === 1 ? "" : "s"} found`
-    : "No listings found. Try a bigger radius or fewer filters.";
+function showResults(listings, total, understood, center) {
+  let count;
+  if (!listings.length) count = "No listings found. Try a bigger radius or fewer filters.";
+  else if (total > listings.length) count = `Top ${listings.length} of ${total} matches`;
+  else count = `${total} listing${total === 1 ? "" : "s"} found`;
   statusEl.textContent = understood ? `${count} for: ${understood}` : count;
   listings.forEach((listing, i) => resultsEl.append(renderListing(listing, i + 1)));
   MapView.show(listings, center);
@@ -117,8 +119,8 @@ function describeFilters(f) {
 }
 
 // Explanations load after the list, so slow AI never blocks the results.
-async function explainTop(text, listings) {
-  const top = listings.slice(0, EXPLAIN_TOP);
+async function explainTop(text, listings, center) {
+  const top = listings.slice(0, TOP_RESULTS);
   if (!top.length) return;
 
   const slots = top.map((l) => {
@@ -133,7 +135,7 @@ async function explainTop(text, listings) {
     const explanations = await requestJSON("/explain", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, listing_ids: top.map((l) => l.id) }),
+      body: JSON.stringify({ text, listing_ids: top.map((l) => l.id), center }),
     });
     for (const [id, slot] of slots) {
       if (explanations[id]) {
