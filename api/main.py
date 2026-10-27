@@ -107,6 +107,10 @@ METRO_CITIES = {
 }
 
 
+# Only the closest few are shown, each with an AI explanation.
+TOP_RESULTS = 5
+
+
 class AskRequest(BaseModel):
     text: str = Field(min_length=2, max_length=500)
 
@@ -120,6 +124,7 @@ class AskResponse(BaseModel):
     filters: Filters
     center: Point | None  # the searched place, so the map can mark it; None for city-wide
     radius_m: int  # how far the search reached, after any widening
+    total: int  # how many listings matched (up to the search limit); only the best few are returned
     results: list[Listing]
 
 
@@ -147,7 +152,10 @@ def ask(request: AskRequest):
         if results:
             break
     center = {"lat": lat, "lon": lon} if filters.near else None
-    return {"filters": filters, "center": center, "radius_m": radius, "results": results}
+    return {
+        "filters": filters, "center": center, "radius_m": radius,
+        "total": len(results), "results": results[:TOP_RESULTS],
+    }
 
 
 @app.get("/config")
@@ -160,11 +168,16 @@ def config():
 
 class ExplainRequest(BaseModel):
     text: str = Field(min_length=2, max_length=500)
-    listing_ids: list[int] = Field(min_length=1, max_length=5)
+    listing_ids: list[int] = Field(min_length=1, max_length=TOP_RESULTS)
+    center: Point | None = None  # the searched place, so explanations can mention distance
 
 
+# distance_m is computed here, not taken from the browser, and is NULL without a center.
 EXPLAIN_SQL = """
-SELECT id, address, description, bedrooms, washrooms, sqft, price, property_type
+SELECT id, address, description, bedrooms, washrooms, sqft, price, property_type,
+       CASE WHEN %(lat)s::float IS NULL THEN NULL
+            ELSE round(ST_Distance(location, ST_MakePoint(%(lon)s::float, %(lat)s::float)::geography))
+       END AS distance_m
 FROM listings WHERE id = ANY(%(ids)s);
 """
 
@@ -173,7 +186,9 @@ FROM listings WHERE id = ANY(%(ids)s);
 def explain(request: ExplainRequest) -> dict[int, str]:
     """Why each listing fits the request. Facts come from the database, never the browser."""
     with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
-        listings = conn.execute(EXPLAIN_SQL, {"ids": request.listing_ids}).fetchall()
+        center = request.center
+        params = {"ids": request.listing_ids, "lat": center and center.lat, "lon": center and center.lon}
+        listings = conn.execute(EXPLAIN_SQL, params).fetchall()
     if not listings:
         raise HTTPException(status_code=404, detail="No listings with those ids")
     try:
