@@ -177,3 +177,79 @@ def test_ask_starts_wider_for_a_whole_city(monkeypatch):
     monkeypatch.setattr(api.main, "run_search", lambda lat, lon, radius, *f: tried.append(radius) or [])
     client.post("/ask", json={"text": "townhouse in surrey"})
     assert tried == list(api.main.CITY_RADII)
+
+
+# --- Top 5 results, 3-sentence explanations ---
+
+def test_ask_returns_only_top_five_nearest_with_total(monkeypatch, ids_within):
+    monkeypatch.setattr(api.main, "parse_query", fake_parse(Filters(near="Downtown")))
+    monkeypatch.setattr(api.main, "geocode", lambda place: (49.2827, -123.1207))
+    body = client.post("/ask", json={"text": "anything downtown"}).json()
+
+    matches = ids_within(49.2827, -123.1207, body["radius_m"])
+    assert len(matches) > api.main.TOP_RESULTS  # more matched than are shown
+    assert len(body["results"]) == api.main.TOP_RESULTS
+    assert body["total"] == min(len(matches), 50)  # 50 is the search limit
+    distances = [r["distance_m"] for r in body["results"]]
+    assert distances == sorted(distances)
+
+
+def test_ask_total_equals_results_when_few_match(monkeypatch):
+    monkeypatch.setattr(api.main, "parse_query", fake_parse(Filters(near="Downtown")))
+    monkeypatch.setattr(api.main, "geocode", lambda place: (49.2827, -123.1207))
+    two = api.main.run_search(49.2827, -123.1207, 3000)[:2]
+    monkeypatch.setattr(api.main, "run_search", lambda *args: two)
+    body = client.post("/ask", json={"text": "downtown"}).json()
+    assert body["total"] == 2
+    assert len(body["results"]) == 2
+
+
+def test_explain_accepts_at_most_top_five(monkeypatch, db):
+    # Fake Gemini: this test is about the request limit, and must not spend API quota.
+    monkeypatch.setattr(api.main, "explain_listings", lambda query, listings: {l["id"]: "ok" for l in listings})
+    ids = [r["id"] for r in db("SELECT id FROM listings ORDER BY id LIMIT 6")]
+    assert client.post("/explain", json={"text": "condo", "listing_ids": ids[:5]}).status_code == 200
+    assert client.post("/explain", json={"text": "condo", "listing_ids": ids}).status_code == 422
+
+
+def test_explanations_are_trimmed_to_three_sentences(monkeypatch):
+    fake_gemini(monkeypatch, [Explanation(id=1, explanation="One. Two. Three. Four. Five.")])
+    assert explain_listings("condo", [{"id": 1}]) == {1: "One. Two. Three."}
+
+
+def test_instructions_ask_for_three_sentences():
+    assert "exactly\n3 short" in api.llm.EXPLAIN_INSTRUCTIONS
+    assert api.llm.SENTENCES == 3
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("One. Two. Three. Four.", "One. Two. Three."),
+    ("Short and sweet.", "Short and sweet."),
+    # Periods in street names and prices don't end a sentence.
+    ("Near St. George St in Sunset. Has 4 beds. Under budget. Extra.",
+     "Near St. George St in Sunset. Has 4 beds. Under budget."),
+    ("At 8080 No. 3 Rd it is close. Price is $1.5M. Great views! Also big.",
+     "At 8080 No. 3 Rd it is close. Price is $1.5M. Great views!"),
+])
+def test_first_sentences(text, expected):
+    assert api.llm.first_sentences(text) == expected
+
+
+def test_explain_gets_distance_from_searched_place(monkeypatch, db):
+    seen = {}
+    monkeypatch.setattr(api.main, "explain_listings",
+                        lambda query, listings: seen.update({l["id"]: l["distance_m"] for l in listings}) or {})
+    row = db("SELECT id, ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lon FROM listings ORDER BY id LIMIT 1")[0]
+
+    # Searched right at the listing: distance is about 0, computed by the database.
+    client.post("/explain", json={"text": "condo", "listing_ids": [row["id"]], "center": {"lat": row["lat"], "lon": row["lon"]}})
+    assert seen[row["id"]] < 5
+
+    # No searched place (a city-wide search): no distance.
+    client.post("/explain", json={"text": "condo", "listing_ids": [row["id"]]})
+    assert seen[row["id"]] is None
+
+
+def test_instructions_require_every_listing_and_no_invented_preferences():
+    assert "EVERY listing" in api.llm.EXPLAIN_INSTRUCTIONS
+    assert "never assume" in api.llm.EXPLAIN_INSTRUCTIONS
