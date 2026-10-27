@@ -4,6 +4,7 @@ const statusEl = document.getElementById("status");
 const resultsEl = document.getElementById("results");
 
 const EXPLAIN_TOP = 5;
+const FIRST_RADII_KM = [3, 8];  // the server's first radius: 3 km near a place, 8 km for a whole city
 
 const money = new Intl.NumberFormat("en-CA", {
   style: "currency", currency: "CAD", maximumFractionDigits: 0,
@@ -19,13 +20,18 @@ askForm.addEventListener("submit", async (event) => {
   MapView.show([]);  // clear old pins so a failed search doesn't show stale results
 
   try {
-    const { filters, center, results } = await requestJSON("/ask", {
+    const { filters, center, radius_m, results } = await requestJSON("/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
     });
     fillForm(filters);
-    showResults(results, describeFilters(filters), center);
+    let understood = describeFilters(filters);
+    // The server widens the search when nothing is close; say so, so farther results make sense.
+    if (center && results.length && !FIRST_RADII_KM.includes(radius_m / 1000)) {
+      understood += ` (nothing closer matched, so showing up to ${radius_m / 1000} km away)`;
+    }
+    showResults(results, understood, center);
     explainTop(text, results);
   } catch (error) {
     statusEl.textContent = `Search failed: ${error.message}`;
@@ -105,7 +111,7 @@ function describeFilters(f) {
     f.property_type,
     f.bedrooms_min != null ? `${f.bedrooms_min}+ bed` : null,
     f.price_max != null ? `under ${money.format(f.price_max)}` : null,
-    f.near ? `near ${f.near}` : "anywhere in Vancouver",
+    f.near ? `near ${f.near}` : "anywhere in Metro Vancouver",
     f.preferences,
   ].filter(Boolean).join(", ");
 }
