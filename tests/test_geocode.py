@@ -19,9 +19,11 @@ def test_near_is_geocoded_then_searched(monkeypatch):
         return 49.2827, -123.1207  # Robson & Burrard
 
     monkeypatch.setattr(api.main, "geocode", fake_geocode)
-    results = client.get("/search", params={"near": "Robson St"}).json()
+    by_place = client.get("/search", params={"near": "Robson St"}).json()
+    by_coordinates = client.get("/search", params={"lat": 49.2827, "lon": -123.1207}).json()
     assert calls == ["Robson St"]
-    assert results[0]["address"] == "1050 Robson St"
+    assert len(by_place) > 0
+    assert by_place == by_coordinates
 
 
 def test_unknown_place_returns_400(monkeypatch):
@@ -85,18 +87,38 @@ def test_geocode_rejects_city_wide_fallback(monkeypatch):
         geocode("asdfqwerzxcv")
 
 
-def test_geocode_adds_city_unless_given(monkeypatch):
+def test_geocode_adds_province_unless_area_given(monkeypatch):
+    # Province, not city: "Richmond, Vancouver, BC" made Google return downtown Vancouver.
     sent = []
     monkeypatch.setenv("GOOGLE_MAPS_API_KEY", "test-key")
 
     def fake_get(url, params, timeout):
         sent.append(params["address"])
-        return FakeResponse({"status": "OK", "results": [{"types": ["route"], "geometry": {"location": {"lat": 0, "lng": 0}}}]})
+        return FakeResponse({"status": "OK", "results": [{"types": ["route"], "geometry": {"location": {"lat": 49.25, "lng": -123.1}}}]})
 
     monkeypatch.setattr(api.geocode.httpx, "get", fake_get)
     geocode("Main St")
+    geocode("Richmond")
     geocode("Metrotown, Burnaby")
-    assert sent == ["Main St, Vancouver, BC", "Metrotown, Burnaby"]
+    assert sent == ["Main St, BC", "Richmond, BC", "Metrotown, Burnaby"]
+
+
+def test_geocode_accepts_suburbs(monkeypatch):
+    fake_google(monkeypatch, {
+        "status": "OK",
+        "results": [{"types": ["locality", "political"], "geometry": {"location": {"lat": 49.1666, "lng": -123.1336}}}],
+    })
+    assert geocode("Richmond") == (49.1666, -123.1336)
+
+
+def test_geocode_rejects_places_outside_metro_vancouver(monkeypatch):
+    # e.g. "Whistler": a real place, but nowhere near any listing.
+    fake_google(monkeypatch, {
+        "status": "OK",
+        "results": [{"types": ["locality", "political"], "geometry": {"location": {"lat": 50.116, "lng": -122.957}}}],
+    })
+    with pytest.raises(GeocodeError, match="outside Metro Vancouver"):
+        geocode("Whistler")
 
 
 def test_geocode_bad_key(monkeypatch):

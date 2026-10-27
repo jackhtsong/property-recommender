@@ -17,14 +17,45 @@ def fake_parse(filters):
 
 # --- /ask: Gemini and Google are both faked, so no keys or network needed ---
 
-def test_ask_parses_geocodes_and_searches(monkeypatch):
+def test_ask_parses_geocodes_and_searches(monkeypatch, ids_within):
     monkeypatch.setattr(api.main, "parse_query", fake_parse(
         Filters(near="Kitsilano Beach", bedrooms_min=3, property_type="townhouse")))
     monkeypatch.setattr(api.main, "geocode", lambda place: KITS_BEACH)
 
     body = client.post("/ask", json={"text": "3 bed townhouse near kits beach"}).json()
     assert body["filters"]["near"] == "Kitsilano Beach"
-    assert [r["address"] for r in body["results"]] == ["2240 W 4th Ave"]
+    # Same results as searching those filters directly, within the nearby radius.
+    lat, lon = KITS_BEACH
+    expected = ids_within(lat, lon, api.main.NEARBY_RADIUS, where="property_type = 'townhouse' AND bedrooms >= 3")
+    assert len(expected) > 0
+    assert {r["id"] for r in body["results"]} == expected
+
+
+def test_ask_widens_radius_until_something_matches(monkeypatch):
+    monkeypatch.setattr(api.main, "parse_query", fake_parse(Filters(near="Quiet Corner")))
+    monkeypatch.setattr(api.main, "geocode", lambda place: (49.25, -123.1))
+    one_real_listing = api.main.run_search(49.2827, -123.1207, 2000)[:1]
+    tried = []
+
+    def fake_search(lat, lon, radius, *filters):
+        # Nothing nearby: only the widest radius finds a listing.
+        tried.append(radius)
+        return one_real_listing if radius >= 20000 else []
+
+    monkeypatch.setattr(api.main, "run_search", fake_search)
+
+    body = client.post("/ask", json={"text": "near a quiet corner"}).json()
+    assert tried == [3000, 8000, 20000]
+    assert body["radius_m"] == 20000
+    assert len(body["results"]) == 1
+
+
+def test_ask_stops_at_first_radius_with_results(monkeypatch):
+    monkeypatch.setattr(api.main, "parse_query", fake_parse(Filters(near="Downtown")))
+    monkeypatch.setattr(api.main, "geocode", lambda place: (49.2827, -123.1207))
+    body = client.post("/ask", json={"text": "downtown"}).json()
+    assert body["radius_m"] == api.main.NEARBY_RADII[0]
+    assert len(body["results"]) > 0
 
 
 def test_ask_without_place_searches_whole_city(monkeypatch):
@@ -55,7 +86,7 @@ def test_ask_rejects_empty_text():
 
 # --- /explain ---
 
-def test_explain_uses_database_facts(monkeypatch):
+def test_explain_uses_database_facts(monkeypatch, db):
     seen = {}
 
     def fake_explain(query, listings):
@@ -63,11 +94,15 @@ def test_explain_uses_database_facts(monkeypatch):
         seen["addresses"] = sorted(l["address"] for l in listings)
         return {l["id"]: f"Fits: {l['address']}" for l in listings}
 
+    # Any two real listings; their addresses come from the database, not the request.
+    rows = db("SELECT id, address FROM listings ORDER BY id LIMIT 2")
+    ids = [r["id"] for r in rows]
+
     monkeypatch.setattr(api.main, "explain_listings", fake_explain)
-    response = client.post("/explain", json={"text": "condo downtown", "listing_ids": [1, 2]})
+    response = client.post("/explain", json={"text": "condo downtown", "listing_ids": ids})
     assert response.status_code == 200
-    assert response.json() == {"1": "Fits: 1050 Robson St", "2": "Fits: 1180 Mainland St"}
-    assert seen == {"query": "condo downtown", "addresses": ["1050 Robson St", "1180 Mainland St"]}
+    assert response.json() == {str(r["id"]): f"Fits: {r['address']}" for r in rows}
+    assert seen == {"query": "condo downtown", "addresses": sorted(r["address"] for r in rows)}
 
 
 def test_explain_limits_listing_count():
@@ -133,3 +168,12 @@ def test_missing_key(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     with pytest.raises(LLMError, match="not set"):
         api.llm.parse_query("3 bed house")
+
+
+def test_ask_starts_wider_for_a_whole_city(monkeypatch):
+    monkeypatch.setattr(api.main, "parse_query", fake_parse(Filters(near="Surrey")))
+    monkeypatch.setattr(api.main, "geocode", lambda place: (49.19, -122.85))
+    tried = []
+    monkeypatch.setattr(api.main, "run_search", lambda lat, lon, radius, *f: tried.append(radius) or [])
+    client.post("/ask", json={"text": "townhouse in surrey"})
+    assert tried == list(api.main.CITY_RADII)
