@@ -3,56 +3,79 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Property Recommender</title>
-  <link rel="stylesheet" href="style.css">
+  <title>Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <!-- ?v=… makes the browser fetch the new file instead of an old cached copy; bump it after editing. -->
+  <link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
-  <main>
-    <h1>Property Recommender</h1>
+  <!-- The map fills the whole page; everything else floats on top of it. -->
+  <div id="map" hidden></div>
 
-    <form id="ask-form">
-      <label class="ask-label">Describe what you're looking for
-        <input name="text" type="text" placeholder="e.g. 3 bed townhouse near Kits under 1.6M, close to the beach" required>
-      </label>
-      <button type="submit">Ask</button>
-    </form>
+  <div id="panel">
+    <h1 id="headline"><span class="wordmark">COMPANY</span>Find your next home</h1>
 
-    <p class="divider">or filter manually</p>
+    <!-- The search bar: every control on the page lives in here. -->
+    <div id="bar">
+      <form id="ask-form">
+        <span class="logo" aria-hidden="true">⌂</span>
+        <label class="visually-hidden" for="ask-text">Describe what you're looking for</label>
+        <input id="ask-text" name="text" type="text" autocomplete="off"
+               placeholder="Describe your ideal home in Metro Vancouver…" required>
+        <button type="button" id="filters-toggle" class="icon-button"
+                aria-expanded="false" aria-controls="search-form" title="Filters">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="16" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="2"/>
+            <circle cx="10" cy="17" r="2" fill="none" stroke="currentColor" stroke-width="2"/>
+          </svg>
+          <span class="visually-hidden">Filters</span>
+        </button>
+        <button type="submit" class="send" title="Search">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="visually-hidden">Search</span>
+        </button>
+      </form>
 
-    <form id="search-form">
-      <label class="wide">Near
-        <input name="near" type="text" value="Robson St & Burrard St" placeholder="e.g. Commercial Drive" required>
-      </label>
-      <label>Radius (m)
-        <input name="radius" type="number" min="1" max="50000" value="3000">
-      </label>
-      <label>Min bedrooms
-        <input name="bedrooms_min" type="number" min="0">
-      </label>
-      <label>Max price ($)
-        <input name="price_max" type="number" min="1">
-      </label>
-      <label>Type
-        <select name="property_type">
-          <option value="">Any</option>
-          <option value="condo">Condo</option>
-          <option value="townhouse">Townhouse</option>
-          <option value="house">House</option>
-          <option value="duplex">Duplex</option>
-          <option value="loft">Loft</option>
-        </select>
-      </label>
-      <button type="submit">Search</button>
-    </form>
-
-    <p id="status" aria-live="polite"></p>
-    <div class="layout">
-      <ul id="results"></ul>
-      <div id="map" hidden></div>
+      <form id="search-form" hidden>
+        <label class="wide">Near
+          <input name="near" type="text" value="Robson St & Burrard St" placeholder="e.g. Commercial Drive" required>
+        </label>
+        <label>Radius (m)
+          <input name="radius" type="number" min="1" max="50000" value="3000">
+        </label>
+        <label>Min bedrooms
+          <input name="bedrooms_min" type="number" min="0">
+        </label>
+        <label>Max price ($)
+          <input name="price_max" type="number" min="1">
+        </label>
+        <label>Type
+          <select name="property_type">
+            <option value="">Any</option>
+            <option value="condo">Condo</option>
+            <option value="townhouse">Townhouse</option>
+            <option value="house">House</option>
+            <option value="duplex">Duplex</option>
+            <option value="loft">Loft</option>
+          </select>
+        </label>
+        <button type="submit" class="wide">Search with these filters</button>
+      </form>
     </div>
-  </main>
 
-  <script src="map.js"></script>
-  <script src="app.js"></script>
+    <!-- Results appear here after a search. -->
+    <section id="results-panel">
+      <div id="status" aria-live="polite"></div>
+      <ul id="results"></ul>
+    </section>
+  </div>
+
+  <script src="map.js?v=12"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>

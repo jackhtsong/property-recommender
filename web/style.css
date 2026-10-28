@@ -1,119 +1,323 @@
 :root {
-  --bg: #f7f7f5;
+  --bg: #f4f1ec;
   --card: #ffffff;
-  --text: #1f1f1f;
-  --muted: #666;
-  --border: #ddd;
-  --accent: #2b6cb0;
-  font-family: system-ui, sans-serif;
+  --text: #1c2321;
+  --muted: #5f6b68;
+  --border: #e3ded6;
+  --accent: #153541;       /* Evermark navy: buttons, badges, listing pins */
+  --accent-dark: #0c2230;
+  --accent-soft: #e8eef3;
+  --place: #e8590c;        /* coral: the searched-place pin */
+  --error: #b42318;
+  --error-soft: #fef3f2;
+  --shadow: 0 6px 24px rgba(28, 35, 33, 0.18), 0 1px 4px rgba(28, 35, 33, 0.1);
+  --radius: 14px;
+  font-family: "Inter", system-ui, sans-serif;
 }
+
+* { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background: var(--bg);
+  height: 100vh;
+  overflow: hidden;  /* the page itself never scrolls; only the results list does */
+  /* Shows if the map can't load (no key), so the page never looks empty. */
+  background: linear-gradient(160deg, #d3dde6, var(--bg));
   color: var(--text);
 }
 
-main {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 24px 16px;
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 
-#search-form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 12px;
-  align-items: end;
+/* ---------- Map: fills the whole page, behind everything ---------- */
+
+#map {
+  position: fixed !important;  /* Google Maps sets position: relative on this element */
+  inset: 0;
 }
 
-#ask-form {
-  display: flex;
-  gap: 12px;
-  align-items: end;
-}
+/* ---------- The column floating over the map: search bar, then results ---------- */
 
-.ask-label {
-  flex: 1;
-}
-
-.divider {
-  color: var(--muted);
-  font-size: 0.85rem;
-  margin: 16px 0 8px;
-}
-
-.explanation {
-  margin-top: 8px;
-  padding: 8px 12px;
-  border-left: 3px solid var(--accent);
-  background: var(--bg);
-  font-size: 0.95rem;
-}
-
-.explanation.loading {
-  color: var(--muted);
-  font-style: italic;
-}
-
-label.wide {
-  grid-column: span 2;
-}
-
-label {
+#panel {
+  position: fixed;
+  z-index: 2;
+  top: 16px;
+  left: 16px;
+  bottom: 36px;  /* leaves Google's logo in the bottom-left corner visible */
+  width: 440px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 0.85rem;
-  color: var(--muted);
+  gap: 12px;
+  pointer-events: none;  /* empty space in the column lets clicks reach the map */
+  transition: top 0.45s ease, left 0.45s ease, width 0.45s ease, transform 0.45s ease;
 }
+
+/* Before the first search: one big search box, a third of the way up from the bottom,
+   like an AI chat app. After a search it glides to the top-left corner (the rules above). */
+body:not(.searched) #panel {
+  top: 66.67%;  /* translate(-50%) below centres the bar on this line */
+  left: 50%;
+  bottom: auto;
+  width: min(760px, calc(100vw - 24px));
+  transform: translate(-50%, -50%);
+}
+
+body:not(.searched) #bar {
+  padding: 14px;
+  border-radius: 32px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+body:not(.searched) #ask-form input {
+  padding: 14px 16px;
+  font-size: 1.25rem;
+}
+
+body:not(.searched) #ask-form .send {
+  width: 52px;
+  height: 52px;
+}
+
+/* Dims the map on the landing page so the white search bar stands out.
+   It fades away once a search starts. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 1;  /* above the map, below the search bar */
+  background: rgba(15, 23, 22, 0.4);
+  pointer-events: none;  /* the map underneath can still be dragged */
+  transition: opacity 0.5s ease;
+}
+
+body.searched::before { opacity: 0; }
+
+body:not(.searched) .logo { display: none; }
+
+/* The heading above the big search bar. It's positioned outside the column's flow,
+   so the bar itself stays exactly on the one-third line. Hidden after a search. */
+#headline {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  color: white;
+  font-size: clamp(1.05rem, 5.4vw, 38px);  /* shrinks on phones so it stays on one line */
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  padding-left: 16px;  /* lines up with the rounded edge of the bar */
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+}
+
+body.searched #headline { display: none; }
+
+/* The brand name in front of the heading. */
+.wordmark {
+  margin-right: 10px;
+  color: var(--accent);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-shadow: none;
+}
+
+#bar,
+#results-panel {
+  pointer-events: auto;
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+#bar {
+  flex: none;
+  padding: 6px;
+}
+
+#results-panel {
+  flex: 0 1 auto;
+  min-height: 0;  /* lets the list scroll inside the panel instead of overflowing */
+  overflow-y: auto;
+  padding: 16px;
+  animation: slide-in 0.3s ease-out;
+}
+
+body:not(.searched) #results-panel { display: none; }
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.logo {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-left: 4px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: white;
+  font-size: 1.1rem;
+}
+
+/* ---------- Forms ---------- */
 
 input, select, button {
   font: inherit;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  color: inherit;
 }
 
-button {
+input, select {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: white;
+}
+
+input:focus, select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: transparent;
+}
+
+button[type="submit"] {
+  flex: none;
+  padding: 9px 16px;
+  border: none;
+  border-radius: 9px;
   background: var(--accent);
   color: white;
-  border: none;
+  font-weight: 600;
   cursor: pointer;
 }
 
-/* List and map side by side; the map stays in view while the list scrolls. */
-.layout {
+button[type="submit"]:hover { background: var(--accent-dark); }
+
+/* The round arrow button in the search bar. */
+#ask-form .send {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 16px;
-  align-items: start;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+}
+button:disabled { opacity: 0.6; cursor: wait; }
+
+#ask-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.layout:has(#map:not([hidden])) {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+#ask-form input {
+  min-width: 0;
+  border: none;
+  outline: none;
+  font-size: 0.98rem;
+  text-overflow: ellipsis;
 }
 
-#map {
-  position: sticky;
-  top: 16px;
-  height: calc(100vh - 32px);
-  min-height: 360px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
+.icon-button {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
 }
 
-/* On phones, map on top and shorter. */
-@media (max-width: 800px) {
-  .layout:has(#map:not([hidden])) {
-    grid-template-columns: 1fr;
-  }
-  #map {
-    position: static;
-    height: 320px;
-    order: -1;
-  }
+.icon-button:hover { background: var(--bg); color: var(--text); }
+
+.icon-button[aria-expanded="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
 }
+
+/* Manual filters: open inside the bar, under the search box. */
+#search-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 6px;
+  padding: 12px 8px 6px;
+  border-top: 1px solid var(--border);
+}
+
+#search-form[hidden] { display: none; }
+
+#search-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+#search-form .wide {
+  grid-column: span 2;
+}
+
+/* ---------- Status line ---------- */
+
+#status {
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+#status:empty { display: none; }
+
+#status .count {
+  display: block;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+#status .tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+#status .tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+#status .note {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.8rem;
+}
+
+#status.error {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--error-soft);
+  color: var(--error);
+}
+
+/* ---------- Result cards ---------- */
 
 #results {
   list-style: none;
@@ -123,13 +327,19 @@ button {
   gap: 12px;
 }
 
+#results:empty { display: none; }
+
 .listing {
+  position: relative;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 16px;
+  border-radius: var(--radius);
+  padding: 14px 14px 14px 52px;
   cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
+
+.listing:hover { border-color: #c9c2b7; }
 
 .listing.selected {
   border-color: var(--accent);
@@ -137,29 +347,126 @@ button {
 }
 
 .badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 22px;
-  height: 22px;
-  margin-right: 8px;
-  border-radius: 11px;
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
   background: var(--accent);
   color: white;
-  font-size: 0.8rem;
-  vertical-align: middle;
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 
-.listing h2 {
-  margin: 0 0 4px;
-  font-size: 1.1rem;
+.price {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
-.listing p {
-  margin: 4px 0 0;
+.address {
+  margin: 2px 0 8px;
+  font-size: 0.92rem;
+  font-weight: 500;
 }
 
-.meta {
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.chips li {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 0.78rem;
   color: var(--muted);
-  font-size: 0.9rem;
+}
+
+.description {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.explanation {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.explanation::before {
+  content: "✨ Why it matches";
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.explanation.loading {
+  color: var(--muted);
+  font-style: italic;
+  background: linear-gradient(90deg, var(--accent-soft) 25%, #f5f8fa 50%, var(--accent-soft) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+/* Grey placeholder cards while a search is running. */
+.listing.skeleton {
+  height: 120px;
+  cursor: default;
+  border-color: transparent;
+  background: linear-gradient(90deg, #eeebe5 25%, #f7f5f1 50%, #eeebe5 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* ---------- Phones ---------- */
+
+@media (max-width: 700px) {
+  #panel {
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+  }
+
+  .logo { display: none; }
+
+  /* Results become a bottom sheet; the map shows between the bar and the sheet.
+     It stops above the bottom edge so Google's logo and credits stay visible. */
+  #results-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 26px;
+    height: 52vh;
+    border-radius: 18px;
+    margin: 0 8px;
+    animation-name: slide-up;
+  }
+
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(40px); }
+    to   { opacity: 1; transform: none; }
+  }
 }
